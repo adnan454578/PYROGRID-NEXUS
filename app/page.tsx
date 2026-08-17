@@ -10,50 +10,74 @@ import {
   Lock, 
   RefreshCw, 
   CheckCircle, 
-  AlertTriangle 
+  AlertTriangle,
+  TrendingUp,
+  Building2,
+  ChevronDown,
+  LogOut,
+  KeyRound
 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid
+} from 'recharts';
 
 // --- Supabase Client Initialization ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// --- TypeScript Interface (Updated to accept standard string or specific unions) ---
 interface TelemetryData {
-  id: any;
-  timestamp: string;
+  id?: any;
+  created_at?: string;
+  timestamp?: string;
   temperature: number;
   voltage: number;
   current: number;
   rpm: number;
-  status: string; // Flexible string to avoid TS2322 build errors
+  status: string;
+  plant_id?: string;
 }
+
+// Power Plant Data
+const powerPlants = [
+  { id: 'plant-1', name: 'Power Plant 1', capacity: '100 MW', status: 'ACTIVE' },
+  { id: 'plant-2', name: 'Power Plant 2', capacity: '110 MW', status: 'ACTIVE' },
+  { id: 'plant-3', name: 'Power Plant 3', capacity: '95 MW', status: 'STANDBY' },
+];
 
 export default function PyroGridNexus() {
   // Authentication State
-  const useStateAuth = useState(false);
-  const isAuthenticated = useStateAuth[0];
-  const setIsAuthenticated = useStateAuth[1];
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passkey, setPasskey] = useState('');
+  const [authError, setAuthError] = useState('');
 
-  const useStatePasskey = useState('');
-  const passkey = useStatePasskey[0];
-  const setPasskey = useStatePasskey[1];
+  // Plant & Telemetry State
+  const [selectedPlant, setSelectedPlant] = useState(powerPlants[0]);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [telemetryData, setTelemetryData] = useState<TelemetryData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const useStateAuthError = useState('');
-  const authError = useStateAuthError[0];
-  const setAuthError = useStateAuthError[1];
+  // Dynamic Local Time Formatting (HH:MM:SS)
+  const formatTime = (row: TelemetryData) => {
+    const rawTime = row.created_at || row.timestamp;
+    if (!rawTime) return new Date().toLocaleTimeString();
+    
+    if (rawTime.length <= 8 && rawTime.includes(':')) return rawTime;
 
-  // Telemetry & Control State
-  const useStateTelemetry = useState<TelemetryData[]>([]);
-  const telemetryData = useStateTelemetry[0];
-  const setTelemetryData = useStateTelemetry[1];
+    const date = new Date(rawTime);
+    return isNaN(date.getTime())
+      ? rawTime
+      : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
 
-  const useStateLoading = useState(true);
-  const isLoading = useStateLoading[0];
-  const setIsLoading = useStateLoading[1];
-
-  // Admin Passkey Verification
+  // Login Handler
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (passkey === 'admin123' || passkey === '1234') {
@@ -64,7 +88,14 @@ export default function PyroGridNexus() {
     }
   };
 
-  // Fetch Real-time Telemetry Data from Supabase
+  // Logout Handler
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setPasskey('');
+    setAuthError('');
+  };
+
+  // Fetch Telemetry Records from Supabase
   const fetchTelemetry = async () => {
     setIsLoading(true);
     try {
@@ -72,32 +103,75 @@ export default function PyroGridNexus() {
         .from('telemetry')
         .select('*')
         .order('id', { ascending: false })
-        .limit(10);
+        .limit(15);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase Query Error:', error);
+      }
 
       if (data && data.length > 0) {
         setTelemetryData(data);
       } else {
-        // Fallback Mock Data with explicit typing
+        // Fallback live demo data if database is empty
+        const now = new Date();
         setTelemetryData([
-          { id: 1, timestamp: '12:00:00', temperature: 48.5, voltage: 230, current: 12.4, rpm: 1500, status: 'NORMAL' },
-          { id: 2, timestamp: '12:01:00', temperature: 52.1, voltage: 228, current: 12.8, rpm: 1510, status: 'NORMAL' },
-          { id: 3, timestamp: '12:02:00', temperature: 68.4, voltage: 222, current: 15.1, rpm: 1580, status: 'WARNING' },
+          { 
+            id: 3, 
+            created_at: new Date(now.getTime()).toISOString(), 
+            temperature: 48.5, 
+            voltage: 230, 
+            current: 12.4, 
+            rpm: 1500, 
+            status: 'NORMAL' 
+          },
+          { 
+            id: 2, 
+            created_at: new Date(now.getTime() - 60000).toISOString(), 
+            temperature: 52.1, 
+            voltage: 228, 
+            current: 12.8, 
+            rpm: 1510, 
+            status: 'NORMAL' 
+          },
+          { 
+            id: 1, 
+            created_at: new Date(now.getTime() - 120000).toISOString(), 
+            temperature: 68.4, 
+            voltage: 222, 
+            current: 15.1, 
+            rpm: 1580, 
+            status: 'WARNING' 
+          },
         ]);
       }
     } catch (err) {
-      console.error('Error fetching telemetry:', err);
+      console.error('Fetch error:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    if (isAuthenticated) {
+      fetchTelemetry();
+
+      // Subscribe to Real-time Inserts from Microcontroller (ESP32)
+      const channel = supabase
+        .channel('schema-db-changes')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'telemetry' },
+          (payload) => {
+            setTelemetryData((prev) => [payload.new as TelemetryData, ...prev.slice(0, 14)]);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [isAuthenticated]);
 
   const latestRead = telemetryData[0] || {
     temperature: 0,
@@ -107,10 +181,21 @@ export default function PyroGridNexus() {
     status: 'OFFLINE',
   };
 
-  // --- LOGIN PANEL (Matte Black with Clean Inputs) ---
+  // Chart Data Preparation (Chronological Order)
+  const chartData = [...telemetryData].reverse().map((item) => ({
+    time: formatTime(item),
+    temp: item.temperature,
+    volts: item.voltage,
+  }));
+
+  // --- DEDICATED LOGIN INTERFACE ---
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4 text-gray-100 font-sans">
+      <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4 text-gray-100 font-sans relative overflow-hidden">
+        {/* Subtle Ambient Background Elements */}
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none"></div>
+
         <div className="w-full max-w-md bg-[#1e1e1e] border border-gray-800 rounded-2xl p-8 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-yellow-400"></div>
           
@@ -119,20 +204,20 @@ export default function PyroGridNexus() {
               <Zap className="w-8 h-8 text-yellow-400" />
             </div>
             <h1 className="text-2xl font-bold tracking-wider text-white">PYROGRID NEXUS</h1>
-            <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest">Thermal Analytics & Control</p>
+            <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest">Thermal Analytics & Control Terminal</p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
-                Operator Passkey
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2 flex items-center gap-2">
+                <KeyRound className="w-3.5 h-3.5 text-yellow-400" /> Operator Access Passkey
               </label>
               <div className="relative">
                 <input
                   type="password"
                   value={passkey}
                   onChange={(e) => setPasskey(e.target.value)}
-                  placeholder="Enter Passkey"
+                  placeholder="Enter Access Key"
                   className="w-full bg-[#121212] border border-gray-700 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-yellow-400 transition"
                   required
                 />
@@ -141,7 +226,7 @@ export default function PyroGridNexus() {
             </div>
 
             {authError && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-xs text-red-400 flex items-center gap-2">
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-xs text-red-400 flex items-center gap-2 animate-fade-in">
                 <ShieldAlert className="w-4 h-4 shrink-0" />
                 <span>{authError}</span>
               </div>
@@ -149,26 +234,26 @@ export default function PyroGridNexus() {
 
             <button
               type="submit"
-              className="w-full bg-yellow-400 hover:bg-yellow-300 text-black font-bold py-3 px-4 rounded-xl text-sm transition tracking-wider uppercase shadow-lg shadow-yellow-400/10"
+              className="w-full bg-yellow-400 hover:bg-yellow-300 text-black font-bold py-3 px-4 rounded-xl text-sm transition tracking-wider uppercase shadow-lg shadow-yellow-400/10 active:scale-[0.99]"
             >
-              Authenticate System
+              Authenticate & Access Dashboard
             </button>
           </form>
 
-          <div className="mt-8 text-center text-[10px] text-gray-600 uppercase tracking-widest">
-            Industrial Power Monitoring System • Secure Terminal
+          <div className="mt-8 text-center text-[10px] text-gray-600 uppercase tracking-widest border-t border-gray-800/60 pt-4">
+            Industrial Power Monitoring System • Authorization Required
           </div>
         </div>
       </div>
     );
   }
 
-  // --- DASHBOARD PANEL ---
+  // --- DASHBOARD INTERFACE ---
   return (
     <div className="min-h-screen bg-[#121212] text-gray-100 font-sans">
-      {/* Header Bar */}
+      {/* Top Navigation Bar */}
       <header className="bg-[#1e1e1e] border-b border-gray-800 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-yellow-400/10 border border-yellow-400/30 rounded-xl flex items-center justify-center">
               <Zap className="w-5 h-5 text-yellow-400" />
@@ -177,6 +262,54 @@ export default function PyroGridNexus() {
               <h1 className="text-lg font-bold text-white tracking-wide">PYROGRID NEXUS</h1>
               <p className="text-[10px] text-gray-400 uppercase tracking-widest">Thermal Analytics Portal</p>
             </div>
+          </div>
+
+          {/* Plant Selector Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="flex items-center gap-3 bg-[#121212] border border-gray-700 hover:border-yellow-400/50 px-4 py-2.5 rounded-xl transition text-left"
+            >
+              <Building2 className="w-4 h-4 text-yellow-400" />
+              <div>
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  {selectedPlant.name}
+                  <span className="bg-yellow-400/10 text-yellow-400 border border-yellow-400/30 text-[10px] px-2 py-0.5 rounded-full font-mono">
+                    {selectedPlant.capacity}
+                  </span>
+                </div>
+                <div className="text-[10px] text-gray-400">Generation Status</div>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-gray-400 ml-2 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-64 bg-[#1e1e1e] border border-gray-800 rounded-xl shadow-2xl z-50 py-2">
+                <div className="px-4 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-800">
+                  Select Power Station
+                </div>
+                {powerPlants.map((plant) => (
+                  <button
+                    key={plant.id}
+                    onClick={() => {
+                      setSelectedPlant(plant);
+                      setIsDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-3 flex items-center justify-between hover:bg-[#2a2a2a] transition ${
+                      selectedPlant.id === plant.id ? 'bg-[#252525] border-l-2 border-yellow-400' : ''
+                    }`}
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-white">{plant.name}</div>
+                      <div className="text-[10px] text-gray-400">Status: {plant.status}</div>
+                    </div>
+                    <span className="text-xs font-mono font-bold text-yellow-400 bg-yellow-400/10 px-2.5 py-1 rounded-lg border border-yellow-400/20">
+                      {plant.capacity}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -188,21 +321,36 @@ export default function PyroGridNexus() {
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
             <button
-              onClick={() => setIsAuthenticated(false)}
-              className="text-xs bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 px-4 py-2 rounded-xl font-medium transition"
+              onClick={handleLogout}
+              className="text-xs bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 px-4 py-2.5 rounded-xl font-medium transition flex items-center gap-1.5"
             >
-              Disconnect
+              <LogOut className="w-3.5 h-3.5" /> Log Out
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Container */}
+      {/* Main Dashboard Layout */}
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-        {/* Metric Cards Grid */}
+        {/* Active Station Banner */}
+        <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <span className="text-xs font-semibold text-gray-300">
+              Live Connection Active: <strong className="text-white">{selectedPlant.name}</strong>
+            </span>
+          </div>
+          <div className="text-xs font-mono text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 px-3 py-1 rounded-lg">
+            Generation Capacity: {selectedPlant.capacity}
+          </div>
+        </div>
+
+        {/* Telemetry Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Temperature */}
-          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6 relative overflow-hidden">
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
             <div className="flex justify-between items-start mb-4">
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Thermal Load</span>
               <div className="p-2 bg-yellow-400/10 rounded-xl">
@@ -213,7 +361,6 @@ export default function PyroGridNexus() {
             <div className="text-xs text-gray-500">Core Junction Temp</div>
           </div>
 
-          {/* Voltage */}
           <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
             <div className="flex justify-between items-start mb-4">
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Line Voltage</span>
@@ -225,7 +372,6 @@ export default function PyroGridNexus() {
             <div className="text-xs text-gray-500">RMS Bus Voltage</div>
           </div>
 
-          {/* Current */}
           <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
             <div className="flex justify-between items-start mb-4">
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Current Draw</span>
@@ -237,7 +383,6 @@ export default function PyroGridNexus() {
             <div className="text-xs text-gray-500">Primary Phase Current</div>
           </div>
 
-          {/* RPM / Speed */}
           <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
             <div className="flex justify-between items-start mb-4">
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Cooling Fan Speed</span>
@@ -250,7 +395,46 @@ export default function PyroGridNexus() {
           </div>
         </div>
 
-        {/* Real-time Telemetry Table */}
+        {/* Real-time Line Chart */}
+        <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6 shadow-xl">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-md font-bold text-white tracking-wide flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-yellow-400" /> Real-Time Thermal Dynamics ({selectedPlant.name})
+            </h2>
+            <span className="text-xs text-gray-500">Live Telemetry Trend</span>
+          </div>
+
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="tempGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#eab308" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#eab308" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
+                <XAxis dataKey="time" stroke="#666666" fontSize={11} />
+                <YAxis stroke="#666666" fontSize={11} domain={['dataMin - 5', 'dataMax + 5']} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#171717', borderColor: '#333333', borderRadius: '12px', color: '#ffffff' }}
+                  itemStyle={{ color: '#eab308' }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="temp"
+                  stroke="#eab308"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#tempGradient)"
+                  name="Temperature (°C)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Real-time Data Stream Log Table */}
         <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl overflow-hidden shadow-xl">
           <div className="px-6 py-5 border-b border-gray-800 flex justify-between items-center">
             <h2 className="text-md font-bold text-white tracking-wide flex items-center gap-2">
@@ -274,7 +458,7 @@ export default function PyroGridNexus() {
               <tbody className="divide-y divide-gray-800/60 text-gray-300">
                 {telemetryData.map((row, idx) => (
                   <tr key={idx} className="hover:bg-[#252525] transition">
-                    <td className="py-4 px-6 font-mono text-gray-400">{row.timestamp}</td>
+                    <td className="py-4 px-6 font-mono text-gray-400">{formatTime(row)}</td>
                     <td className="py-4 px-6 font-semibold text-white">{row.temperature} °C</td>
                     <td className="py-4 px-6">{row.voltage} V</td>
                     <td className="py-4 px-6">{row.current} A</td>
