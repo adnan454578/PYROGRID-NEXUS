@@ -1,373 +1,487 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { 
+  Zap, 
+  Activity, 
+  Thermometer, 
+  Gauge, 
+  ShieldAlert, 
+  Lock, 
+  RefreshCw, 
+  CheckCircle, 
+  AlertTriangle,
+  TrendingUp,
+  Building2,
+  ChevronDown,
+  LogOut,
+  KeyRound
+} from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import {
-  LineChart,
-  Line,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
-  ResponsiveContainer,
   CartesianGrid
 } from 'recharts';
-import {
-  Activity,
-  Gauge,
-  Zap,
-  RotateCw,
-  Download,
-  Thermometer,
-  Lock,
-  ZapOff,
-  RotateCcw
-} from 'lucide-react';
 
-// Initialize Supabase Client
+// --- Supabase Client Initialization ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pdnvpuoxtamymiaoxoma.supabase.co';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkbnZwdW94dGFteW1pYW94b21hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NTM5MTcsImV4cCI6MjEwMjUyOTkxN30.4VnCHpIADdogTwCFNSusaK046x2E5eFBCBuE9br1KtQ';
 
-const supabase = (supabaseUrl && supabaseAnonKey)
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface TelemetryData {
-  id?: string | number;
-  timestamp: string;
+  id?: any;
+  created_at?: string;
+  timestamp?: string;
   temperature: number;
   voltage: number;
   current: number;
   rpm: number;
-  status: 'NORMAL' | 'WARNING' | 'CRITICAL';
+  status: string;
+  plant_id?: string;
 }
 
-export default function PyroGridNexusDashboard() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [adminUser, setAdminUser] = useState<string>('');
-  const [passkey, setPasskey] = useState<string>('');
-  const [authError, setAuthError] = useState<string>('');
+// Power Plant Data
+const powerPlants = [
+  { id: 'plant-1', name: 'Power Plant 1', capacity: '100 MW', status: 'ACTIVE' },
+  { id: 'plant-2', name: 'Power Plant 2', capacity: '110 MW', status: 'ACTIVE' },
+  { id: 'plant-3', name: 'Power Plant 3', capacity: '95 MW', status: 'STANDBY' },
+];
 
-  const [telemetry, setTelemetry] = useState<TelemetryData[]>([]);
-  const [currentTemp, setCurrentTemp] = useState<number>(0);
-  const [currentVoltage, setCurrentVoltage] = useState<number>(0);
-  const [currentCurrent, setCurrentCurrent] = useState<number>(0);
-  const [currentRpm, setCurrentRpm] = useState<number>(0);
-  const [systemStatus, setSystemStatus] = useState<'NORMAL' | 'WARNING' | 'CRITICAL'>('NORMAL');
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+export default function PyroGridNexus() {
+  // Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passkey, setPasskey] = useState('');
+  const [authError, setAuthError] = useState('');
 
-  // Administrative Access Handler
+  // Plant & Telemetry State
+  const [selectedPlant, setSelectedPlant] = useState(powerPlants[0]);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [telemetryData, setTelemetryData] = useState<TelemetryData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Dynamic Local Time Formatting (HH:MM:SS)
+  const formatTime = (row: TelemetryData) => {
+    const rawTime = row.created_at || row.timestamp;
+    if (!rawTime) return new Date().toLocaleTimeString();
+    
+    if (rawTime.length <= 8 && rawTime.includes(':')) return rawTime;
+
+    const date = new Date(rawTime);
+    return isNaN(date.getTime())
+      ? rawTime
+      : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+
+  // Login Handler
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminUser === 'admin' && passkey === '1234') {
+    if (passkey === 'admin123' || passkey === '1234') {
       setIsAuthenticated(true);
       setAuthError('');
     } else {
-      setAuthError('Invalid Administrative Credentials');
+      setAuthError('Invalid Access Key. Access Denied.');
     }
   };
 
-  // Fetch real-time telemetry from Supabase
+  // Logout Handler
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setPasskey('');
+    setAuthError('');
+  };
+
+  // Fetch Telemetry Records from Supabase
   const fetchTelemetry = async () => {
-    setIsRefreshing(true);
+    setIsLoading(true);
     try {
-      if (!supabase) {
-        generateMockTelemetry();
-        return;
+      const { data, error } = await supabase
+        .from('telemetry')
+        .select('*')
+        .order('id', { ascending: false })
+        .limit(15);
+
+      if (error) {
+        console.error('Supabase Query Error:', error);
       }
 
-      const { data, error } = await supabase
-        .from('thermal_telemetry')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (data && data.length > 0 && !error) {
-        const formattedData: TelemetryData[] = data.map((item: any) => {
-          const calculatedStatus: 'NORMAL' | 'WARNING' | 'CRITICAL' = 
-            item.temperature > 75 ? 'CRITICAL' : item.temperature > 55 ? 'WARNING' : 'NORMAL';
-
-          return {
-            id: item.id,
-            timestamp: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            temperature: item.temperature,
-            voltage: item.voltage,
-            current: item.current,
-            rpm: item.rpm || 0,
-            status: calculatedStatus
-          };
-        }).reverse();
-
-        setTelemetry(formattedData);
-        const latest = formattedData[formattedData.length - 1];
-        setCurrentTemp(latest.temperature);
-        setCurrentVoltage(latest.voltage);
-        setCurrentCurrent(latest.current);
-        setCurrentRpm(latest.rpm);
-        setSystemStatus(latest.status);
+      if (data && data.length > 0) {
+        setTelemetryData(data as TelemetryData[]);
       } else {
-        generateMockTelemetry();
+        // Fallback live demo data if database is empty
+        const now = new Date();
+        setTelemetryData([
+          { 
+            id: 3, 
+            created_at: new Date(now.getTime()).toISOString(), 
+            temperature: 48.5, 
+            voltage: 230, 
+            current: 12.4, 
+            rpm: 1500, 
+            status: 'NORMAL' 
+          },
+          { 
+            id: 2, 
+            created_at: new Date(now.getTime() - 60000).toISOString(), 
+            temperature: 52.1, 
+            voltage: 228, 
+            current: 12.8, 
+            rpm: 1510, 
+            status: 'NORMAL' 
+          },
+          { 
+            id: 1, 
+            created_at: new Date(now.getTime() - 120000).toISOString(), 
+            temperature: 68.4, 
+            voltage: 222, 
+            current: 15.1, 
+            rpm: 1580, 
+            status: 'WARNING' 
+          },
+        ]);
       }
     } catch (err) {
-      generateMockTelemetry();
+      console.error('Fetch error:', err);
     } finally {
-      setIsRefreshing(false);
+      setIsLoading(false);
     }
-  };
-
-  const generateMockTelemetry = () => {
-    const now = new Date();
-    const mock: TelemetryData[] = Array.from({ length: 12 }).map((_, i) => {
-      const time = new Date(now.getTime() - (11 - i) * 10000);
-      const temp = Number((42 + Math.random() * 12).toFixed(1));
-      const statusVal: 'NORMAL' | 'WARNING' | 'CRITICAL' = 
-        temp > 75 ? 'CRITICAL' : temp > 55 ? 'WARNING' : 'NORMAL';
-
-      return {
-        timestamp: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        temperature: temp,
-        voltage: Number((228 + Math.random() * 5).toFixed(1)),
-        current: Number((11.5 + Math.random() * 2).toFixed(1)),
-        rpm: Math.floor(1450 + Math.random() * 100),
-        status: statusVal
-      };
-    });
-    setTelemetry(mock);
-    const last = mock[mock.length - 1];
-    setCurrentTemp(last.temperature);
-    setCurrentVoltage(last.voltage);
-    setCurrentCurrent(last.current);
-    setCurrentRpm(last.rpm);
-    setSystemStatus(last.status);
   };
 
   useEffect(() => {
-    fetchTelemetry();
-    const interval = setInterval(() => {
+    if (isAuthenticated) {
       fetchTelemetry();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
-  const exportCSV = () => {
-    const headers = 'Timestamp,Temperature (°C),Voltage (V),Current (A),RPM,Status\n';
-    const rows = telemetry
-      .map(t => `${t.timestamp},${t.temperature},${t.voltage},${t.current},${t.rpm},${t.status}`)
-      .join('\n');
-    const blob = new Blob([headers + rows], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `PyroGrid_Telemetry_${Date.now()}.csv`;
-    a.click();
+      // Subscribe to Real-time Inserts with typed payload
+      const channel = supabase
+        .channel('schema-db-changes')
+        .on<TelemetryData>(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'telemetry' },
+          (payload) => {
+            if (payload.new) {
+              const newRecord = payload.new as TelemetryData;
+              setTelemetryData((prev) => [newRecord, ...prev.slice(0, 14)]);
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [isAuthenticated]);
+
+  const latestRead = telemetryData[0] || {
+    temperature: 0,
+    voltage: 0,
+    current: 0,
+    rpm: 0,
+    status: 'OFFLINE',
   };
 
-  // Administrative Login Panel
+  // Chart Data Preparation (Chronological Order)
+  const chartData = [...telemetryData].reverse().map((item) => ({
+    time: formatTime(item),
+    temp: item.temperature,
+    volts: item.voltage,
+  }));
+
+  // --- DEDICATED LOGIN INTERFACE ---
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#0F0F10] text-[#E0E0E0] flex items-center justify-center p-4">
-        <div className="bg-[#18181A] border border-[#2A2A2E] rounded-xl p-8 max-w-md w-full shadow-2xl">
-          <div className="flex flex-col items-center mb-6">
-            <div className="p-3 bg-[#E5A93C]/10 rounded-full border border-[#E5A93C]/30 mb-3">
-              <Zap className="w-8 h-8 text-[#E5A93C]" />
+      <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4 text-gray-100 font-sans relative overflow-hidden">
+        {/* Subtle Ambient Background Elements */}
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div className="w-full max-w-md bg-[#1e1e1e] border border-gray-800 rounded-2xl p-8 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-yellow-400"></div>
+          
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 bg-yellow-400/10 border border-yellow-400/30 rounded-2xl flex items-center justify-center mb-4 shadow-inner">
+              <Zap className="w-8 h-8 text-yellow-400" />
             </div>
-            <h1 className="text-2xl font-bold tracking-wider text-[#FFFFFF] uppercase">PyroGrid Nexus</h1>
-            <p className="text-xs text-[#888888] tracking-widest mt-1">POWER PLANT THERMAL ANALYTICS</p>
+            <h1 className="text-2xl font-bold tracking-wider text-white">PYROGRID NEXUS</h1>
+            <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest">Thermal Analytics & Control Terminal</p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-xs uppercase font-semibold text-[#888888] mb-1 tracking-wider">
-                Admin Username
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2 flex items-center gap-2">
+                <KeyRound className="w-3.5 h-3.5 text-yellow-400" /> Operator Access Passkey
               </label>
-              <input
-                type="text"
-                value={adminUser}
-                onChange={(e) => setAdminUser(e.target.value)}
-                placeholder="Enter admin ID"
-                className="w-full bg-[#0F0F10] border border-[#2A2A2E] rounded-lg px-4 py-2.5 text-sm text-[#E0E0E0] focus:outline-none focus:border-[#E5A93C] transition-colors"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs uppercase font-semibold text-[#888888] mb-1 tracking-wider">
-                Passkey
-              </label>
-              <input
-                type="password"
-                value={passkey}
-                onChange={(e) => setPasskey(e.target.value)}
-                placeholder="Enter passkey"
-                className="w-full bg-[#0F0F10] border border-[#2A2A2E] rounded-lg px-4 py-2.5 text-sm text-[#E0E0E0] focus:outline-none focus:border-[#E5A93C] transition-colors"
-                required
-              />
+              <div className="relative">
+                <input
+                  type="password"
+                  value={passkey}
+                  onChange={(e) => setPasskey(e.target.value)}
+                  placeholder="Enter Access Key"
+                  className="w-full bg-[#121212] border border-gray-700 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-yellow-400 transition"
+                  required
+                />
+                <Lock className="w-4 h-4 text-gray-500 absolute right-4 top-3.5" />
+              </div>
             </div>
 
             {authError && (
-              <p className="text-xs text-[#FF5555] bg-[#2A1515] border border-[#552222] p-2.5 rounded-lg text-center">
-                {authError}
-              </p>
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-xs text-red-400 flex items-center gap-2 animate-fade-in">
+                <ShieldAlert className="w-4 h-4 shrink-0" />
+                <span>{authError}</span>
+              </div>
             )}
 
             <button
               type="submit"
-              className="w-full bg-[#E5A93C] hover:bg-[#D4982B] text-[#0F0F10] font-bold py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-lg"
+              className="w-full bg-yellow-400 hover:bg-yellow-300 text-black font-bold py-3 px-4 rounded-xl text-sm transition tracking-wider uppercase shadow-lg shadow-yellow-400/10 active:scale-[0.99]"
             >
-              <Lock className="w-4 h-4" /> Authenticate Access
+              Authenticate & Access Dashboard
             </button>
           </form>
+
+          <div className="mt-8 text-center text-[10px] text-gray-600 uppercase tracking-widest border-t border-gray-800/60 pt-4">
+            Industrial Power Monitoring System • Authorization Required
+          </div>
         </div>
       </div>
     );
   }
 
-  // Dashboard Interface
+  // --- DASHBOARD INTERFACE ---
   return (
-    <div className="min-h-screen bg-[#0F0F10] text-[#E0E0E0] font-sans">
-      {/* Header Bar */}
-      <header className="border-b border-[#2A2A2E] bg-[#141416] px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-[#E5A93C]/10 rounded-lg border border-[#E5A93C]/30">
-            <Zap className="w-6 h-6 text-[#E5A93C]" />
+    <div className="min-h-screen bg-[#121212] text-gray-100 font-sans">
+      {/* Top Navigation Bar */}
+      <header className="bg-[#1e1e1e] border-b border-gray-800 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-yellow-400/10 border border-yellow-400/30 rounded-xl flex items-center justify-center">
+              <Zap className="w-5 h-5 text-yellow-400" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-white tracking-wide">PYROGRID NEXUS</h1>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest">Thermal Analytics Portal</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-bold tracking-wider text-[#FFFFFF] uppercase">PyroGrid Nexus</h1>
-            <p className="text-xs text-[#888888]">Thermal Telemetry & Power Infrastructure System</p>
+
+          {/* Plant Selector Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="flex items-center gap-3 bg-[#121212] border border-gray-700 hover:border-yellow-400/50 px-4 py-2.5 rounded-xl transition text-left"
+            >
+              <Building2 className="w-4 h-4 text-yellow-400" />
+              <div>
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  {selectedPlant.name}
+                  <span className="bg-yellow-400/10 text-yellow-400 border border-yellow-400/30 text-[10px] px-2 py-0.5 rounded-full font-mono">
+                    {selectedPlant.capacity}
+                  </span>
+                </div>
+                <div className="text-[10px] text-gray-400">Generation Status</div>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-gray-400 ml-2 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-64 bg-[#1e1e1e] border border-gray-800 rounded-xl shadow-2xl z-50 py-2">
+                <div className="px-4 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-800">
+                  Select Power Station
+                </div>
+                {powerPlants.map((plant) => (
+                  <button
+                    key={plant.id}
+                    onClick={() => {
+                      setSelectedPlant(plant);
+                      setIsDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-3 flex items-center justify-between hover:bg-[#2a2a2a] transition ${
+                      selectedPlant.id === plant.id ? 'bg-[#252525] border-l-2 border-yellow-400' : ''
+                    }`}
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-white">{plant.name}</div>
+                      <div className="text-[10px] text-gray-400">Status: {plant.status}</div>
+                    </div>
+                    <span className="text-xs font-mono font-bold text-yellow-400 bg-yellow-400/10 px-2.5 py-1 rounded-lg border border-yellow-400/20">
+                      {plant.capacity}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={fetchTelemetry}
-            className="flex items-center gap-2 bg-[#1C1C1F] hover:bg-[#2A2A2E] border border-[#2A2A2E] text-xs px-3 py-2 rounded-lg transition-colors text-[#CCCCCC]"
-          >
-            <RotateCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#E5A93C]' : ''}`} />
-            Refresh
-          </button>
-
-          <button
-            onClick={exportCSV}
-            className="flex items-center gap-2 bg-[#1C1C1F] hover:bg-[#2A2A2E] border border-[#2A2A2E] text-xs px-3 py-2 rounded-lg transition-colors text-[#E5A93C]"
-          >
-            <Download className="w-3.5 h-3.5" /> Export Logs
-          </button>
-
-          <button
-            onClick={() => setIsAuthenticated(false)}
-            className="bg-[#2A1515] hover:bg-[#3D1A1A] text-[#FF5555] border border-[#552222] text-xs px-3 py-2 rounded-lg transition-colors"
-          >
-            Log Out
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={fetchTelemetry}
+              className="p-2.5 bg-[#2a2a2a] hover:bg-[#333333] border border-gray-700 rounded-xl text-gray-300 hover:text-white transition"
+              title="Refresh Data"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-xs bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 px-4 py-2.5 rounded-xl font-medium transition flex items-center gap-1.5"
+            >
+              <LogOut className="w-3.5 h-3.5" /> Log Out
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="p-6 max-w-7xl mx-auto space-y-6">
-        {/* Metric Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-[#18181A] border border-[#2A2A2E] rounded-xl p-5 flex items-center justify-between shadow-sm">
-            <div>
-              <p className="text-xs text-[#888888] uppercase tracking-wider font-semibold">Thermal State</p>
-              <p className="text-2xl font-bold text-[#FFFFFF] mt-1">{currentTemp} °C</p>
-            </div>
-            <div className="p-3 bg-[#222226] rounded-lg border border-[#2A2A2E]">
-              <Thermometer className="w-6 h-6 text-[#E5A93C]" />
-            </div>
+      {/* Main Dashboard Layout */}
+      <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+        {/* Active Station Banner */}
+        <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <span className="text-xs font-semibold text-gray-300">
+              Live Connection Active: <strong className="text-white">{selectedPlant.name}</strong>
+            </span>
           </div>
-
-          <div className="bg-[#18181A] border border-[#2A2A2E] rounded-xl p-5 flex items-center justify-between shadow-sm">
-            <div>
-              <p className="text-xs text-[#888888] uppercase tracking-wider font-semibold">Grid Voltage</p>
-              <p className="text-2xl font-bold text-[#FFFFFF] mt-1">{currentVoltage} V</p>
-            </div>
-            <div className="p-3 bg-[#222226] rounded-lg border border-[#2A2A2E]">
-              <Zap className="w-6 h-6 text-[#55FF55]" />
-            </div>
-          </div>
-
-          <div className="bg-[#18181A] border border-[#2A2A2E] rounded-xl p-5 flex items-center justify-between shadow-sm">
-            <div>
-              <p className="text-xs text-[#888888] uppercase tracking-wider font-semibold">Load Current</p>
-              <p className="text-2xl font-bold text-[#FFFFFF] mt-1">{currentCurrent} A</p>
-            </div>
-            <div className="p-3 bg-[#222226] rounded-lg border border-[#2A2A2E]">
-              <Gauge className="w-6 h-6 text-[#55AAFF]" />
-            </div>
-          </div>
-
-          <div className="bg-[#18181A] border border-[#2A2A2E] rounded-xl p-5 flex items-center justify-between shadow-sm">
-            <div>
-              <p className="text-xs text-[#888888] uppercase tracking-wider font-semibold">Motor RPM</p>
-              <p className="text-2xl font-bold text-[#FFFFFF] mt-1">{currentRpm} RPM</p>
-            </div>
-            <div className="p-3 bg-[#222226] rounded-lg border border-[#2A2A2E]">
-              <RotateCcw className="w-6 h-6 text-[#E5A93C]" />
-            </div>
+          <div className="text-xs font-mono text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 px-3 py-1 rounded-lg">
+            Generation Capacity: {selectedPlant.capacity}
           </div>
         </div>
 
-        {/* Real-time Telemetry Line Chart */}
-        <div className="bg-[#18181A] border border-[#2A2A2E] rounded-xl p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-[#E0E0E0] flex items-center gap-2">
-              <Activity className="w-4 h-4 text-[#E5A93C]" /> Real-Time Thermal Gradient (°C)
-            </h2>
-            <span className="text-xs text-[#666666]">Auto-updates every 5s</span>
+        {/* Telemetry Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Thermal Load</span>
+              <div className="p-2 bg-yellow-400/10 rounded-xl">
+                <Thermometer className="w-5 h-5 text-yellow-400" />
+              </div>
+            </div>
+            <div className="text-3xl font-extrabold text-white mb-1">{latestRead.temperature} °C</div>
+            <div className="text-xs text-gray-500">Core Junction Temp</div>
           </div>
+
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Line Voltage</span>
+              <div className="p-2 bg-yellow-400/10 rounded-xl">
+                <Zap className="w-5 h-5 text-yellow-400" />
+              </div>
+            </div>
+            <div className="text-3xl font-extrabold text-white mb-1">{latestRead.voltage} V</div>
+            <div className="text-xs text-gray-500">RMS Bus Voltage</div>
+          </div>
+
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Current Draw</span>
+              <div className="p-2 bg-yellow-400/10 rounded-xl">
+                <Activity className="w-5 h-5 text-yellow-400" />
+              </div>
+            </div>
+            <div className="text-3xl font-extrabold text-white mb-1">{latestRead.current} A</div>
+            <div className="text-xs text-gray-500">Primary Phase Current</div>
+          </div>
+
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Cooling Fan Speed</span>
+              <div className="p-2 bg-yellow-400/10 rounded-xl">
+                <Gauge className="w-5 h-5 text-yellow-400" />
+              </div>
+            </div>
+            <div className="text-3xl font-extrabold text-white mb-1">{latestRead.rpm} RPM</div>
+            <div className="text-xs text-gray-500">Active Exhaust Fan</div>
+          </div>
+        </div>
+
+        {/* Real-time Line Chart */}
+        <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6 shadow-xl">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-md font-bold text-white tracking-wide flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-yellow-400" /> Real-Time Thermal Dynamics ({selectedPlant.name})
+            </h2>
+            <span className="text-xs text-gray-500">Live Telemetry Trend</span>
+          </div>
+
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={telemetry}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#26262A" />
-                <XAxis dataKey="timestamp" stroke="#666666" fontSize={11} />
-                <YAxis stroke="#666666" fontSize={11} domain={['auto', 'auto']} />
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="tempGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#eab308" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#eab308" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
+                <XAxis dataKey="time" stroke="#666666" fontSize={11} />
+                <YAxis stroke="#666666" fontSize={11} domain={['dataMin - 5', 'dataMax + 5']} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#141416', borderColor: '#2A2A2E', color: '#E0E0E0' }}
-                  itemStyle={{ color: '#E5A93C' }}
+                  contentStyle={{ backgroundColor: '#171717', borderColor: '#333333', borderRadius: '12px', color: '#ffffff' }}
+                  itemStyle={{ color: '#eab308' }}
                 />
-                <Line
+                <Area
                   type="monotone"
-                  dataKey="temperature"
-                  stroke="#E5A93C"
+                  dataKey="temp"
+                  stroke="#eab308"
                   strokeWidth={2}
-                  dot={{ fill: '#E5A93C', r: 3 }}
-                  activeDot={{ r: 6 }}
+                  fillOpacity={1}
+                  fill="url(#tempGradient)"
+                  name="Temperature (°C)"
                 />
-              </LineChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Telemetry Data Logs Table */}
-        <div className="bg-[#18181A] border border-[#2A2A2E] rounded-xl p-6 shadow-sm">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-[#E0E0E0] mb-4 flex items-center gap-2">
-            <ZapOff className="w-4 h-4 text-[#E5A93C]" /> Keypad Input Telemetry Records
-          </h2>
+        {/* Real-time Data Stream Log Table */}
+        <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl overflow-hidden shadow-xl">
+          <div className="px-6 py-5 border-b border-gray-800 flex justify-between items-center">
+            <h2 className="text-md font-bold text-white tracking-wide flex items-center gap-2">
+              <Activity className="w-4 h-4 text-yellow-400" /> Telemetry Stream Log
+            </h2>
+            <span className="text-xs text-gray-500">Showing last {telemetryData.length} records</span>
+          </div>
+
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-left border-collapse text-sm">
               <thead>
-                <tr className="border-b border-[#2A2A2E] text-[#888888]">
-                  <th className="pb-3 font-semibold">TIMESTAMP</th>
-                  <th className="pb-3 font-semibold">TEMPERATURE (°C)</th>
-                  <th className="pb-3 font-semibold">VOLTAGE (V)</th>
-                  <th className="pb-3 font-semibold">CURRENT (A)</th>
-                  <th className="pb-3 font-semibold">RPM</th>
-                  <th className="pb-3 font-semibold">STATUS</th>
+                <tr className="border-b border-gray-800 text-gray-400 bg-[#171717] text-xs uppercase tracking-wider">
+                  <th className="py-4 px-6">Timestamp</th>
+                  <th className="py-4 px-6">Temperature</th>
+                  <th className="py-4 px-6">Voltage</th>
+                  <th className="py-4 px-6">Current</th>
+                  <th className="py-4 px-6">Speed (RPM)</th>
+                  <th className="py-4 px-6">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#2A2A2E] text-[#CCCCCC]">
-                {telemetry.slice().reverse().map((row, idx) => (
-                  <tr key={idx} className="hover:bg-[#222226] transition-colors">
-                    <td className="py-3">{row.timestamp}</td>
-                    <td className="py-3 font-mono">{row.temperature}</td>
-                    <td className="py-3 font-mono">{row.voltage}</td>
-                    <td className="py-3 font-mono">{row.current}</td>
-                    <td className="py-3 font-mono">{row.rpm}</td>
-                    <td className="py-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        row.status === 'CRITICAL' ? 'bg-[#3D1A1A] text-[#FF5555]' :
-                        row.status === 'WARNING' ? 'bg-[#3A2E15] text-[#E5A93C]' :
-                        'bg-[#1A3D1A] text-[#55FF55]'
-                      }`}>
+              <tbody className="divide-y divide-gray-800/60 text-gray-300">
+                {telemetryData.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-[#252525] transition">
+                    <td className="py-4 px-6 font-mono text-gray-400">{formatTime(row)}</td>
+                    <td className="py-4 px-6 font-semibold text-white">{row.temperature} °C</td>
+                    <td className="py-4 px-6">{row.voltage} V</td>
+                    <td className="py-4 px-6">{row.current} A</td>
+                    <td className="py-4 px-6">{row.rpm} RPM</td>
+                    <td className="py-4 px-6">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                          row.status === 'CRITICAL'
+                            ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                            : row.status === 'WARNING'
+                            ? 'bg-yellow-400/10 border border-yellow-400/30 text-yellow-400'
+                            : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                        }`}
+                      >
+                        {row.status === 'CRITICAL' || row.status === 'WARNING' ? (
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                        ) : (
+                          <CheckCircle className="w-3.5 h-3.5" />
+                        )}
                         {row.status}
                       </span>
                     </td>
