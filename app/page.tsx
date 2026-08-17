@@ -17,7 +17,6 @@ import {
   Zap,
   RotateCw,
   Download,
-  ShieldCheck,
   Thermometer,
   Lock,
   ZapOff,
@@ -26,7 +25,7 @@ import {
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pdnvpuoxtamymiaoxoma.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_UFFvOmXiGrpCbCsrJYKxbQ_b21ZA38B';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkbnZwdW94dGFteW1pYW94b21hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NTM5MTcsImV4cCI6MjEwMjUyOTkxN30.4VnCHpIADdogTwCFNSusaK046x2E5eFBCBuE9br1KtQ';
 
 const supabase = (supabaseUrl && supabaseAnonKey)
   ? createClient(supabaseUrl, supabaseAnonKey)
@@ -83,15 +82,20 @@ export default function PyroGridNexusDashboard() {
         .limit(20);
 
       if (data && data.length > 0 && !error) {
-        const formattedData: TelemetryData[] = data.map((item: any) => ({
-          id: item.id,
-          timestamp: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          temperature: item.temperature,
-          voltage: item.voltage,
-          current: item.current,
-          rpm: item.rpm || 0,
-          status: item.temperature > 75 ? 'CRITICAL' : item.temperature > 55 ? 'WARNING' : 'NORMAL'
-        })).reverse();
+        const formattedData: TelemetryData[] = data.map((item: any) => {
+          const calculatedStatus: 'NORMAL' | 'WARNING' | 'CRITICAL' = 
+            item.temperature > 75 ? 'CRITICAL' : item.temperature > 55 ? 'WARNING' : 'NORMAL';
+
+          return {
+            id: item.id,
+            timestamp: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            temperature: item.temperature,
+            voltage: item.voltage,
+            current: item.current,
+            rpm: item.rpm || 0,
+            status: calculatedStatus
+          };
+        }).reverse();
 
         setTelemetry(formattedData);
         const latest = formattedData[formattedData.length - 1];
@@ -115,13 +119,16 @@ export default function PyroGridNexusDashboard() {
     const mock: TelemetryData[] = Array.from({ length: 12 }).map((_, i) => {
       const time = new Date(now.getTime() - (11 - i) * 10000);
       const temp = Number((42 + Math.random() * 12).toFixed(1));
+      const statusVal: 'NORMAL' | 'WARNING' | 'CRITICAL' = 
+        temp > 75 ? 'CRITICAL' : temp > 55 ? 'WARNING' : 'NORMAL';
+
       return {
         timestamp: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         temperature: temp,
         voltage: Number((228 + Math.random() * 5).toFixed(1)),
         current: Number((11.5 + Math.random() * 2).toFixed(1)),
         rpm: Math.floor(1450 + Math.random() * 100),
-        status: temp > 75 ? 'CRITICAL' : temp > 55 ? 'WARNING' : 'NORMAL'
+        status: statusVal
       };
     });
     setTelemetry(mock);
