@@ -29,6 +29,9 @@ import {
   CartesianGrid
 } from 'recharts';
 
+// Prevent Next.js static prerender build errors on Vercel
+export const dynamic = 'force-dynamic';
+
 // --- Supabase Client Initialization ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pdnvpuoxtamymiaoxoma.supabase.co';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkbnZwdW94dGFteW1pYW94b21hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NTM5MTcsImV4cCI6MjEwMjUyOTkxN30.4VnCHpIADdogTwCFNSusaK046x2E5eFBCBuE9br1KtQ';
@@ -56,6 +59,9 @@ const powerPlants = [
 ];
 
 export default function PyroGridNexus() {
+  // Client Mount Check
+  const [mounted, setMounted] = useState(false);
+
   // Authentication State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passkey, setPasskey] = useState('');
@@ -66,6 +72,10 @@ export default function PyroGridNexus() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [telemetryData, setTelemetryData] = useState<TelemetryData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Dynamic Local Time Formatting (HH:MM:SS)
   const formatTime = (row: TelemetryData) => {
@@ -161,7 +171,7 @@ export default function PyroGridNexus() {
     if (isAuthenticated) {
       fetchTelemetry();
 
-      // Subscribe to Real-time Inserts with typed payload
+      // Subscribe to Real-time Inserts
       const channel = supabase
         .channel('schema-db-changes')
         .on<TelemetryData>(
@@ -182,6 +192,15 @@ export default function PyroGridNexus() {
     }
   }, [isAuthenticated]);
 
+  // Prevent hydration mismatch during SSR
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-[#121212] flex items-center justify-center text-gray-400 font-sans">
+        Loading PyroGrid Nexus...
+      </div>
+    );
+  }
+
   const latestRead = telemetryData[0] || {
     temperature: 0,
     voltage: 0,
@@ -191,7 +210,7 @@ export default function PyroGridNexus() {
     status: 'OFFLINE',
   };
 
-  // Chart Data Preparation (Chronological Order)
+  // Chart Data Preparation
   const chartData = [...telemetryData].reverse().map((item) => ({
     time: formatTime(item),
     temp: item.temperature,
@@ -202,7 +221,6 @@ export default function PyroGridNexus() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4 text-gray-100 font-sans relative overflow-hidden">
-        {/* Subtle Ambient Background Elements */}
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -236,7 +254,7 @@ export default function PyroGridNexus() {
             </div>
 
             {authError && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-xs text-red-400 flex items-center gap-2 animate-fade-in">
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-xs text-red-400 flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 shrink-0" />
                 <span>{authError}</span>
               </div>
@@ -358,7 +376,7 @@ export default function PyroGridNexus() {
           </div>
         </div>
 
-        {/* Telemetry Cards Grid (5 Grid Items) */}
+        {/* Telemetry Cards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-5">
             <div className="flex justify-between items-start mb-3">
