@@ -15,7 +15,8 @@ import {
   Building2,
   ChevronDown,
   LogOut,
-  KeyRound
+  KeyRound,
+  Cpu
 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -40,7 +41,8 @@ interface TelemetryData {
   timestamp?: string;
   temperature: number;
   voltage: number;
-  current: number;
+  current: number;       // Load Current (A)
+  max_demand?: number;   // Maximum Demand (kWh)
   rpm: number;
   status: string;
   plant_id?: string;
@@ -122,6 +124,7 @@ export default function PyroGridNexus() {
             temperature: 48.5, 
             voltage: 230, 
             current: 12.4, 
+            max_demand: 285.2,
             rpm: 1500, 
             status: 'NORMAL' 
           },
@@ -131,6 +134,7 @@ export default function PyroGridNexus() {
             temperature: 52.1, 
             voltage: 228, 
             current: 12.8, 
+            max_demand: 291.8,
             rpm: 1510, 
             status: 'NORMAL' 
           },
@@ -140,6 +144,7 @@ export default function PyroGridNexus() {
             temperature: 68.4, 
             voltage: 222, 
             current: 15.1, 
+            max_demand: 335.0,
             rpm: 1580, 
             status: 'WARNING' 
           },
@@ -181,6 +186,7 @@ export default function PyroGridNexus() {
     temperature: 0,
     voltage: 0,
     current: 0,
+    max_demand: 0,
     rpm: 0,
     status: 'OFFLINE',
   };
@@ -352,50 +358,61 @@ export default function PyroGridNexus() {
           </div>
         </div>
 
-        {/* Telemetry Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
-            <div className="flex justify-between items-start mb-4">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Thermal Load</span>
+        {/* Telemetry Cards Grid (5 Grid Items) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-5">
+            <div className="flex justify-between items-start mb-3">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Boiler Temp</span>
               <div className="p-2 bg-yellow-400/10 rounded-xl">
                 <Thermometer className="w-5 h-5 text-yellow-400" />
               </div>
             </div>
-            <div className="text-3xl font-extrabold text-white mb-1">{latestRead.temperature} °C</div>
-            <div className="text-xs text-gray-500">Core Junction Temp</div>
+            <div className="text-2xl font-extrabold text-white mb-1">{latestRead.temperature} °C</div>
+            <div className="text-[11px] text-gray-500">Boiler Core Temp</div>
           </div>
 
-          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
-            <div className="flex justify-between items-start mb-4">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Line Voltage</span>
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-5">
+            <div className="flex justify-between items-start mb-3">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Gen. Voltage</span>
               <div className="p-2 bg-yellow-400/10 rounded-xl">
                 <Zap className="w-5 h-5 text-yellow-400" />
               </div>
             </div>
-            <div className="text-3xl font-extrabold text-white mb-1">{latestRead.voltage} V</div>
-            <div className="text-xs text-gray-500">RMS Bus Voltage</div>
+            <div className="text-2xl font-extrabold text-white mb-1">{latestRead.voltage} V</div>
+            <div className="text-[11px] text-gray-500">Generating Voltage</div>
           </div>
 
-          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
-            <div className="flex justify-between items-start mb-4">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Current Draw</span>
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-5">
+            <div className="flex justify-between items-start mb-3">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Load Current</span>
               <div className="p-2 bg-yellow-400/10 rounded-xl">
                 <Activity className="w-5 h-5 text-yellow-400" />
               </div>
             </div>
-            <div className="text-3xl font-extrabold text-white mb-1">{latestRead.current} A</div>
-            <div className="text-xs text-gray-500">Primary Phase Current</div>
+            <div className="text-2xl font-extrabold text-white mb-1">{latestRead.current} A</div>
+            <div className="text-[11px] text-gray-500">Phase Load Current</div>
           </div>
 
-          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-6">
-            <div className="flex justify-between items-start mb-4">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Cooling Fan Speed</span>
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-5">
+            <div className="flex justify-between items-start mb-3">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Max Demand</span>
+              <div className="p-2 bg-yellow-400/10 rounded-xl">
+                <Cpu className="w-5 h-5 text-yellow-400" />
+              </div>
+            </div>
+            <div className="text-2xl font-extrabold text-white mb-1">{latestRead.max_demand ?? (latestRead.current * 20).toFixed(1)} kWh</div>
+            <div className="text-[11px] text-gray-500">Maximum Demand</div>
+          </div>
+
+          <div className="bg-[#1e1e1e] border border-gray-800 rounded-2xl p-5">
+            <div className="flex justify-between items-start mb-3">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Machine Speed</span>
               <div className="p-2 bg-yellow-400/10 rounded-xl">
                 <Gauge className="w-5 h-5 text-yellow-400" />
               </div>
             </div>
-            <div className="text-3xl font-extrabold text-white mb-1">{latestRead.rpm} RPM</div>
-            <div className="text-xs text-gray-500">Active Exhaust Fan</div>
+            <div className="text-2xl font-extrabold text-white mb-1">{latestRead.rpm} RPM</div>
+            <div className="text-[11px] text-gray-500">Turbine / Shaft Speed</div>
           </div>
         </div>
 
@@ -431,7 +448,7 @@ export default function PyroGridNexus() {
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#tempGradient)"
-                  name="Temperature (°C)"
+                  name="Boiler Temp (°C)"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -452,10 +469,11 @@ export default function PyroGridNexus() {
               <thead>
                 <tr className="border-b border-gray-800 text-gray-400 bg-[#171717] text-xs uppercase tracking-wider">
                   <th className="py-4 px-6">Timestamp</th>
-                  <th className="py-4 px-6">Temperature</th>
-                  <th className="py-4 px-6">Voltage</th>
-                  <th className="py-4 px-6">Current</th>
-                  <th className="py-4 px-6">Speed (RPM)</th>
+                  <th className="py-4 px-6">Boiler Temp</th>
+                  <th className="py-4 px-6">Generating Voltage</th>
+                  <th className="py-4 px-6">Load Current</th>
+                  <th className="py-4 px-6">Max Demand</th>
+                  <th className="py-4 px-6">Machine Speed</th>
                   <th className="py-4 px-6">Status</th>
                 </tr>
               </thead>
@@ -466,6 +484,7 @@ export default function PyroGridNexus() {
                     <td className="py-4 px-6 font-semibold text-white">{row.temperature} °C</td>
                     <td className="py-4 px-6">{row.voltage} V</td>
                     <td className="py-4 px-6">{row.current} A</td>
+                    <td className="py-4 px-6">{row.max_demand ?? (row.current * 20).toFixed(1)} kWh</td>
                     <td className="py-4 px-6">{row.rpm} RPM</td>
                     <td className="py-4 px-6">
                       <span
