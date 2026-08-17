@@ -29,8 +29,12 @@ import {
 } from 'recharts';
 
 // --- Supabase Client Initialization ---
+// --- Supabase Client Initialization ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pdnvpuoxtamymiaoxoma.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_UFFvOmXiGrpCbCsrJYKxbQ_b21ZA38B';
+
+// Correct JWT anon key provided:
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkbnZwdW94dGFteW1pYW94b21hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NTM5MTcsImV4cCI6MjEwMjUyOTkxN30.4VnCHpIADdogTwCFNSusaK046x2E5eFBCBuE9br1KtQ';
+
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface TelemetryData {
